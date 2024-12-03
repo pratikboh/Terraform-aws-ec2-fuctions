@@ -1,69 +1,62 @@
 #This Terraform Code Deploys Basic VPC Infra.
 provider "aws" {
-  # access_key = "${var.aws_access_key}"
-  # secret_key = "${var.aws_secret_key}"
   region = var.aws_region
 }
 
 terraform {
   backend "s3" {
-    bucket = "workspacesbucket01"
-    key    = "workspace.statefile"
+    bucket = "terraformpratik"
+    key    = "Fuctions.statefile"
     region = "us-east-1"
     #dynamodb_table = "dynamodb-state-locking"
   }
 }
 
-
 resource "aws_vpc" "default" {
   cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
   tags = {
-    Name  = "${var.vpc_name}"
-    Owner = "Saikiran"
+    Name        = local.Name
+    Owner       = local.Owner
+    environment = local.environment
   }
 }
 
 resource "aws_internet_gateway" "default" {
   vpc_id = aws_vpc.default.id
   tags = {
-    Name = "${var.IGW_name}"
+    Name = "Fuctions-IGW"
   }
 }
 
-resource "aws_subnet" "subnet1-public" {
+resource "aws_subnet" "public-subnet" {
+  count             = length(var.public_cird_block)
   vpc_id            = aws_vpc.default.id
-  cidr_block        = var.public_subnet1_cidr
-  availability_zone = "us-east-1a"
+  cidr_block        = element(var.public_cird_block, count.index)
+  availability_zone = element(var.azs, count.index)
 
   tags = {
-    Name = "${var.public_subnet1_name}"
+    Name        = "Public-subnet-${count.index}"
+    Owner       = local.Owner
+    environment = local.environment
   }
 }
 
-# resource "aws_subnet" "subnet2-public" {
-#   vpc_id            = aws_vpc.default.id
-#   cidr_block        = var.public_subnet2_cidr
-#   availability_zone = "us-east-1b"
+resource "aws_subnet" "private-subnet" {
+  count             = length(var.private_cird_block)
+  vpc_id            = aws_vpc.default.id
+  cidr_block        = element(var.private_cird_block, count.index)
+  availability_zone = element(var.azs, count.index)
 
-#   tags = {
-#     Name = "${var.public_subnet2_name}"
-#   }
-# }
-
-# resource "aws_subnet" "subnet3-public" {
-#   vpc_id            = aws_vpc.default.id
-#   cidr_block        = var.public_subnet3_cidr
-#   availability_zone = "us-east-1c"
-
-#   tags = {
-#     Name = "${var.public_subnet3_name}"
-#   }
-
-# }
+  tags = {
+    Name        = "Private-subnet-${count.index}"
+    Owner       = local.Owner
+    environment = local.environment
+  }
+}
 
 
-resource "aws_route_table" "terraform-public" {
+resource "aws_route_table" "RouteTable-public" {
   vpc_id = aws_vpc.default.id
 
   route {
@@ -72,26 +65,51 @@ resource "aws_route_table" "terraform-public" {
   }
 
   tags = {
-    Name = "${var.Main_Routing_Table}"
+    Name = "RouteTable-public"
   }
 }
 
-resource "aws_route_table_association" "terraform-public" {
-  subnet_id      = aws_subnet.subnet1-public.id
-  route_table_id = aws_route_table.terraform-public.id
+resource "aws_route_table_association" "RouteTable-public" {
+  count          = length(var.public_cird_block)
+  subnet_id      = aws_subnet.public-subnet[count.index].id
+  route_table_id = aws_route_table.RouteTable-public.id
+}
+
+resource "aws_route_table" "RouteTable-private" {
+  vpc_id = aws_vpc.default.id
+
+  tags = {
+    Name = "RouteTable-private"
+  }
+}
+
+resource "aws_route_table_association" "RouteTable-private" {
+  count          = length(var.private_cird_block)
+  subnet_id      = aws_subnet.private-subnet[count.index].id
+  route_table_id = aws_route_table.RouteTable-private.id
 }
 
 resource "aws_security_group" "allow_all" {
-  name        = "allow_all"
+  name        = "${var.vpc_name}-allow_all"
   description = "Allow all inbound traffic"
   vpc_id      = aws_vpc.default.id
 
-  ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+  dynamic "ingress" {
+    for_each = var.service_port
+    content {
+      from_port   = ingress.value
+      to_port     = ingress.value
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
+
+  #  ingress {
+  #    from_port   = 0
+  #    to_port     = 0
+  #    protocol    = "-1"
+  #    cidr_blocks = ["0.0.0.0/0"]
+  #  }
 
   egress {
     from_port   = 0
